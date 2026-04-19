@@ -1,0 +1,16 @@
+{
+  "name": "cosby-fica-prospecting",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Automated B2B prospecting system for FICA/ERC tax credit services",
+  "scripts": {
+    "finder": "node fica_lead_finder.js",
+    "scorer": "node fica_scorer.js",
+    "outreach": "node fica_outreach.js",
+    "vapi": "node fica_vapi.js",
+    "telegram": "node fica_telegram.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.4"
+  }
+}
