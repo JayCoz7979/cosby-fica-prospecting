@@ -1,6 +1,6 @@
 /**
  * fica_vapi.js
- * Triggers outbound VAPI calls for high-scoring FICA Tip Credit leads.
+ * Triggers outbound ElevenLabs Conversational AI calls for high-scoring FICA leads.
  * Leads in call-restricted states are routed to email outreach instead of skipped.
  * Handles 90-day re-engagement after 3 no-answer calls.
  * Permanently stops on mark_not_interested.
@@ -14,10 +14,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-const VAPI_API_KEY           = process.env.VAPI_API_KEY;
-const FICA_VAPI_ASSISTANT_ID = process.env.FICA_VAPI_ASSISTANT_ID;
-const VAPI_PHONE_NUMBER_ID   = 'a7b56219-b4b2-4e56-89d5-8ecfdf6866de';
-const ZAPIER_WEBHOOK_URL     = 'https://hooks.zapier.com/hooks/catch/26341455/ujd6pv3/';
+const ELEVENLABS_API_KEY      = process.env.ELEVENLABS_API_KEY;
+const ELEVENLABS_AGENT_ID     = process.env.ELEVENLABS_AGENT_ID;
+const ELEVENLABS_PHONE_NUMBER_ID = process.env.ELEVENLABS_PHONE_NUMBER_ID;
+const ZAPIER_WEBHOOK_URL      = 'https://hooks.zapier.com/hooks/catch/26341455/ujd6pv3/';
 const OUTREACH_ENABLED       = process.env.OUTREACH_ENABLED;
 
 const SCORE_THRESHOLD   = 6;
@@ -73,7 +73,7 @@ async function routeToEmail(lead) {
   }
 }
 
-async function triggerVapiCall(lead) {
+async function triggerCall(lead) {
   const phone = formatPhone(lead.phone);
   if (!phone) {
     throw new Error(`Invalid phone number: ${lead.phone}`);
@@ -81,21 +81,18 @@ async function triggerVapiCall(lead) {
 
   console.log(`[vapi] Calling ${lead.business_name} at ${phone}`);
 
-  const response = await fetch('https://api.vapi.ai/call/phone', {
+  const response = await fetch('https://api.elevenlabs.io/v1/convai/conversations/outbound_call', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${VAPI_API_KEY}`,
+      'xi-api-key':   ELEVENLABS_API_KEY,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      assistantId:   FICA_VAPI_ASSISTANT_ID,
-      phoneNumberId: VAPI_PHONE_NUMBER_ID,
-      customer: {
-        number: phone,
-        name:   lead.contact_name || lead.business_name,
-      },
-      assistantOverrides: {
-        variableValues: {
+      agent_id:              ELEVENLABS_AGENT_ID,
+      agent_phone_number_id: ELEVENLABS_PHONE_NUMBER_ID,
+      to_number:             phone,
+      conversation_initiation_client_data: {
+        dynamic_variables: {
           business_name:  lead.business_name,
           contact_name:   lead.contact_name || 'there',
           industry:       lead.industry || 'restaurant',
@@ -110,10 +107,10 @@ async function triggerVapiCall(lead) {
   const result = await response.json();
 
   if (!response.ok) {
-    throw new Error(`VAPI error: ${result.message || JSON.stringify(result)}`);
+    throw new Error(`ElevenLabs error: ${result.detail || JSON.stringify(result)}`);
   }
 
-  return result.id;
+  return result.conversation_id;
 }
 
 async function sendZapierWebhook(lead, callId, status) {
@@ -222,7 +219,7 @@ async function processCallLeads() {
     let errorMsg = null;
 
     try {
-      callId = await triggerVapiCall(lead);
+      callId = await triggerCall(lead);
       console.log(`[vapi] Call initiated for ${lead.business_name} — call ID: ${callId}`);
 
       await supabase
@@ -260,13 +257,18 @@ async function run() {
     process.exit(0);
   }
 
-  if (!VAPI_API_KEY) {
-    console.error('[vapi] VAPI_API_KEY is not set');
+  if (!ELEVENLABS_API_KEY) {
+    console.error('[vapi] ELEVENLABS_API_KEY is not set');
     process.exit(1);
   }
 
-  if (!FICA_VAPI_ASSISTANT_ID) {
-    console.error('[vapi] FICA_VAPI_ASSISTANT_ID is not set');
+  if (!ELEVENLABS_AGENT_ID) {
+    console.error('[vapi] ELEVENLABS_AGENT_ID is not set');
+    process.exit(1);
+  }
+
+  if (!ELEVENLABS_PHONE_NUMBER_ID) {
+    console.error('[vapi] ELEVENLABS_PHONE_NUMBER_ID is not set');
     process.exit(1);
   }
 
