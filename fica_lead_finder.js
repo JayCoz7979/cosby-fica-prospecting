@@ -1,8 +1,12 @@
 /**
  * fica_lead_finder.js
- * Uses Claude with web_search to find hospitality/food-service businesses
- * with tipped employees that likely qualify for the FICA Tip Credit (Section 45B).
+ * Uses Google Maps Places API to find hospitality/food-service businesses
+ * with tipped employees that qualify for the FICA Tip Credit (Section 45B).
  * Schedule: 8:00 AM UTC daily via Railway cron.
+ *
+ * NOTE: OUTREACH_ENABLED does NOT block lead finding.
+ * It only controls outreach agents (email, calls, SMS).
+ * The finder always runs to build the lead pipeline.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -12,127 +16,100 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const OUTREACH_ENABLED  = process.env.OUTREACH_ENABLED;
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+
+if (!GOOGLE_MAPS_API_KEY) {
+  console.error('[finder] GOOGLE_MAPS_API_KEY is required');
+  process.exit(1);
+}
 
 // Primary targets: businesses with tipped employees (FICA Tip Credit eligible)
 const TARGET_SEARCHES = [
-  { industry: 'full-service restaurant', state: 'Alabama',     city: 'Birmingham'   },
-  { industry: 'full-service restaurant', state: 'Tennessee',   city: 'Nashville'    },
-  { industry: 'full-service restaurant', state: 'Georgia',     city: 'Atlanta'      },
-  { industry: 'full-service restaurant', state: 'Mississippi', city: 'Jackson'      },
-  { industry: 'bar and nightclub',       state: 'Alabama',     city: 'Huntsville'   },
-  { industry: 'bar and nightclub',       state: 'Tennessee',   city: 'Memphis'      },
-  { industry: 'bar and nightclub',       state: 'Georgia',     city: 'Savannah'     },
-  { industry: 'bar and nightclub',       state: 'Mississippi', city: 'Biloxi'       },
-  { industry: 'hotel and resort',        state: 'Alabama',     city: 'Montgomery'   },
-  { industry: 'hotel and resort',        state: 'Tennessee',   city: 'Knoxville'    },
-  { industry: 'hotel and resort',        state: 'Georgia',     city: 'Augusta'      },
-  { industry: 'hotel and resort',        state: 'Mississippi', city: 'Gulfport'     },
-  { industry: 'catering company',        state: 'Alabama',     city: 'Tuscaloosa'   },
-  { industry: 'catering company',        state: 'Tennessee',   city: 'Chattanooga'  },
-  { industry: 'coffee shop and cafe',    state: 'Alabama',     city: 'Auburn'       },
-  { industry: 'coffee shop and cafe',    state: 'Tennessee',   city: 'Murfreesboro' },
-  { industry: 'full-service restaurant', state: 'Alabama',     city: 'Mobile'       },
-  { industry: 'full-service restaurant', state: 'Tennessee',   city: 'Clarksville'  },
-  { industry: 'bar and nightclub',       state: 'Georgia',     city: 'Macon'        },
-  { industry: 'hotel and resort',        state: 'Mississippi', city: 'Hattiesburg'  },
+  { type: 'restaurant',    keyword: 'full service restaurant',  city: 'Birmingham',   state: 'Alabama',     industry: 'full-service restaurant' },
+  { type: 'restaurant',    keyword: 'full service restaurant',  city: 'Nashville',    state: 'Tennessee',   industry: 'full-service restaurant' },
+  { type: 'restaurant',    keyword: 'full service restaurant',  city: 'Atlanta',      state: 'Georgia',     industry: 'full-service restaurant' },
+  { type: 'restaurant',    keyword: 'full service restaurant',  city: 'Jackson',      state: 'Mississippi', industry: 'full-service restaurant' },
+  { type: 'bar',           keyword: 'bar nightclub',            city: 'Huntsville',   state: 'Alabama',     industry: 'bar and nightclub'       },
+  { type: 'bar',           keyword: 'bar nightclub',            city: 'Memphis',      state: 'Tennessee',   industry: 'bar and nightclub'       },
+  { type: 'bar',           keyword: 'bar nightclub',            city: 'Savannah',     state: 'Georgia',     industry: 'bar and nightclub'       },
+  { type: 'bar',           keyword: 'bar nightclub',            city: 'Biloxi',       state: 'Mississippi', industry: 'bar and nightclub'       },
+  { type: 'lodging',       keyword: 'hotel resort',             city: 'Montgomery',   state: 'Alabama',     industry: 'hotel and resort'        },
+  { type: 'lodging',       keyword: 'hotel resort',             city: 'Knoxville',    state: 'Tennessee',   industry: 'hotel and resort'        },
+  { type: 'lodging',       keyword: 'hotel resort',             city: 'Augusta',      state: 'Georgia',     industry: 'hotel and resort'        },
+  { type: 'lodging',       keyword: 'hotel resort',             city: 'Gulfport',     state: 'Mississippi', industry: 'hotel and resort'        },
+  { type: 'meal_catering', keyword: 'catering company',         city: 'Tuscaloosa',   state: 'Alabama',     industry: 'catering company'        },
+  { type: 'meal_catering', keyword: 'catering company',         city: 'Chattanooga',  state: 'Tennessee',   industry: 'catering company'        },
+  { type: 'cafe',          keyword: 'coffee shop cafe',         city: 'Auburn',       state: 'Alabama',     industry: 'coffee shop and cafe'    },
+  { type: 'cafe',          keyword: 'coffee shop cafe',         city: 'Murfreesboro', state: 'Tennessee',   industry: 'coffee shop and cafe'    },
+  { type: 'restaurant',    keyword: 'full service restaurant',  city: 'Mobile',       state: 'Alabama',     industry: 'full-service restaurant' },
+  { type: 'restaurant',    keyword: 'full service restaurant',  city: 'Clarksville',  state: 'Tennessee',   industry: 'full-service restaurant' },
+  { type: 'bar',           keyword: 'bar nightclub',            city: 'Macon',        state: 'Georgia',     industry: 'bar and nightclub'       },
+  { type: 'lodging',       keyword: 'hotel resort',             city: 'Hattiesburg',  state: 'Mississippi', industry: 'hotel and resort'        },
 ];
 
-async function searchLeads(target) {
-  console.log(`[finder] Searching: ${target.industry} in ${target.city}, ${target.state}`);
-
-  const prompt = `You are a B2B lead researcher finding hospitality and food-service businesses that have tipped employees and likely qualify for the FICA Tip Credit (Section 45B tax credit).
-
-Use web_search to find REAL ${target.industry} businesses in ${target.city}, ${target.state} with 10-500 employees that are currently operating.
-
-Search for:
-- "${target.industry} ${target.city} ${target.state}"
-- "${target.industry} owner ${target.city} ${target.state} contact"
-- "${target.industry} ${target.city} ${target.state} employees"
-
-Return ONLY a JSON array, no other text:
-[{
-  "business_name": "",
-  "industry": "${target.industry}",
-  "city": "${target.city}",
-  "state": "${target.state}",
-  "phone": "",
-  "email": "",
-  "website_url": "",
-  "employee_count": "",
-  "founded_year": "",
-  "contact_name": "",
-  "source": ""
-}]
-
-Rules:
-- Only real, verifiable businesses that are currently operating
-- Must be in the hospitality/food-service industry with employees who receive tips
-- Include any phone/email/contact info you can find
-- Min 3, max 10 results
-- If you cannot verify a field, leave it as empty string ""`;
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4000,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error('Claude API error: ' + err);
+// ─── Geocode city to lat/lng ───────────────────────────────────────────────
+async function geocodeCity(city, state) {
+  const query = encodeURIComponent(`${city}, ${state}`);
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${query}&key=${GOOGLE_MAPS_API_KEY}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (data.status !== 'OK' || !data.results.length) {
+    throw new Error(`Geocode failed for ${city}, ${state}: ${data.status}`);
   }
-
-  const data = await response.json();
-
-  let fullText = '';
-  for (const block of data.content) {
-    if (block.type === 'text') fullText += block.text;
-  }
-
-  let leads = [];
-  try {
-    const jsonMatch = fullText.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error('No JSON array found in response');
-    leads = JSON.parse(jsonMatch[0]);
-  } catch (err) {
-    console.error(`[finder] Failed to parse response for ${target.city}:`, err.message);
-    console.error('[finder] Raw response snippet:', fullText.slice(0, 300));
-    return [];
-  }
-
-  console.log(`[finder] Found ${leads.length} leads for ${target.industry}/${target.city}`);
-  return leads;
+  return data.results[0].geometry.location; // { lat, lng }
 }
 
-async function upsertLeads(leads) {
-  if (!leads.length) return 0;
+// ─── Search Places API ─────────────────────────────────────────────────────
+async function searchPlaces(target) {
+  console.log(`[finder] Searching: ${target.industry} in ${target.city}, ${target.state}`);
 
-  let saved   = 0;
+  const location = await geocodeCity(target.city, target.state);
+  const query = encodeURIComponent(`${target.keyword} ${target.city} ${target.state}`);
+  const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${query}&location=${location.lat},${location.lng}&radius=30000&type=${target.type}&key=${GOOGLE_MAPS_API_KEY}`;
+
+  const res = await fetch(url);
+  const data = await res.json();
+
+  if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+    throw new Error(`Places API error: ${data.status} — ${data.error_message || ''}`);
+  }
+
+  const places = data.results || [];
+  console.log(`[finder] Found ${places.length} places for ${target.industry}/${target.city}`);
+  return places;
+}
+
+// ─── Get Place Details (phone, website) ───────────────────────────────────
+async function getPlaceDetails(placeId) {
+  const fields = 'name,formatted_phone_number,website,formatted_address,business_status';
+  const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=${fields}&key=${GOOGLE_MAPS_API_KEY}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (data.status !== 'OK') return null;
+  return data.result;
+}
+
+// ─── Upsert Leads to Supabase ──────────────────────────────────────────────
+async function upsertLeads(places, target) {
+  if (!places.length) return 0;
+
+  let saved = 0;
   let skipped = 0;
 
-  for (const lead of leads) {
-    if (!lead.business_name) {
+  for (const place of places.slice(0, 10)) {
+    // Skip permanently closed
+    if (place.business_status === 'CLOSED_PERMANENTLY') {
       skipped++;
       continue;
     }
 
+    // Check for duplicates
     const { data: existing } = await supabase
       .from('fica_leads')
       .select('id')
-      .eq('business_name', lead.business_name)
-      .eq('city', lead.city || '')
-      .eq('state', lead.state || '')
+      .eq('business_name', place.name)
+      .eq('city', target.city)
+      .eq('state', target.state)
       .maybeSingle();
 
     if (existing) {
@@ -140,56 +117,67 @@ async function upsertLeads(leads) {
       continue;
     }
 
+    // Get phone and website from place details
+    let phone = null;
+    let website = null;
+    try {
+      const details = await getPlaceDetails(place.place_id);
+      if (details) {
+        phone = details.formatted_phone_number || null;
+        website = details.website || null;
+      }
+    } catch (err) {
+      console.log(`[finder] Could not get details for ${place.name}:`, err.message);
+    }
+
     const { error } = await supabase.from('fica_leads').insert({
-      business_name:  lead.business_name,
-      industry:       lead.industry || null,
-      city:           lead.city || null,
-      state:          lead.state || null,
-      phone:          lead.phone || null,
-      email:          lead.email || null,
-      website_url:    lead.website_url || null,
-      employee_count: lead.employee_count || null,
-      founded_year:   lead.founded_year || null,
-      contact_name:   lead.contact_name || null,
+      business_name:  place.name,
+      industry:       target.industry,
+      city:           target.city,
+      state:          target.state,
+      phone:          phone,
+      email:          null, // enriched separately by email enrichment agent
+      website_url:    website,
+      contact_name:   null,
       fica_score:     0,
       outreach_stage: 'new',
-      source:         lead.source || 'claude_web_search',
+      source:         'google_maps',
     });
 
     if (error) {
-      console.error(`[finder] Insert error for "${lead.business_name}":`, error.message);
+      console.error(`[finder] Insert error for "${place.name}":`, error.message);
     } else {
       saved++;
-      console.log(`[finder] Saved: ${lead.business_name} (${lead.city}, ${lead.state})`);
+      console.log(`[finder] Saved: ${place.name} (${target.city}, ${target.state}) | Phone: ${phone || 'none'} | Website: ${website || 'none'}`);
     }
+
+    // Small delay to avoid rate limiting on details API
+    await new Promise(r => setTimeout(r, 200));
   }
 
-  console.log(`[finder] Saved ${saved} new, skipped ${skipped} (duplicates or invalid)`);
+  console.log(`[finder] Saved ${saved} new, skipped ${skipped} (duplicates/closed)`);
   return saved;
 }
 
+// ─── Main ──────────────────────────────────────────────────────────────────
 async function run() {
-  console.log('[finder] Starting fica_lead_finder — ' + new Date().toISOString());
-
-  if (OUTREACH_ENABLED !== 'true') {
-    console.log('[finder] OUTREACH_ENABLED is not "true" — skipping lead finder.');
-    process.exit(0);
-  }
+  console.log('[finder] Starting fica_lead_finder (Google Maps) — ' + new Date().toISOString());
 
   const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
   const target    = TARGET_SEARCHES[dayOfYear % TARGET_SEARCHES.length];
 
   console.log(`[finder] Today's target: ${target.industry} in ${target.city}, ${target.state}`);
 
-  let leads = [];
+  let places = [];
   try {
-    leads = await searchLeads(target);
+    places = await searchPlaces(target);
   } catch (err) {
-    console.error('[finder] Error searching leads:', err.message);
+    console.error('[finder] Error searching places:', err.message);
+    process.exit(1);
   }
 
-  const totalSaved = await upsertLeads(leads);
-  console.log(`[finder] Run complete — found ${leads.length} total, saved ${totalSaved} new leads`);
+  const totalSaved = await upsertLeads(places, target);
+  console.log(`[finder] Run complete — found ${places.length} places, saved ${totalSaved} new leads`);
 }
 
 run().catch((err) => {
