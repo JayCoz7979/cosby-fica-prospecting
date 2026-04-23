@@ -1,6 +1,6 @@
 /**
  * fica_telegram.js
- * Sends a daily summary to Telegram @JayCoz_Bot with:
+ * Sends a daily summary to the FICA Alerts Telegram group with:
  *   - New leads found today
  *   - Emails sent today
  *   - Calls triggered today
@@ -17,7 +17,7 @@ const supabase = createClient(
 );
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID   = '1296640696';
+const TELEGRAM_CHAT_ID   = process.env.TELEGRAM_CHAT_ID;
 const TELEGRAM_API       = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 
 async function sendTelegramMessage(text) {
@@ -189,6 +189,13 @@ async function run() {
     console.error('[telegram] TELEGRAM_BOT_TOKEN is not set');
     process.exit(1);
   }
+
+  if (!TELEGRAM_CHAT_ID) {
+    console.error('[telegram] TELEGRAM_CHAT_ID is not set');
+    process.exit(1);
+  }
+
+  console.log(`[telegram] Sending to chat: ${TELEGRAM_CHAT_ID}`);
 
   try {
     await sendDailySummary();
