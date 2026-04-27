@@ -1,0 +1,6 @@
+[deploy]
+startCommand = "node index.js"
+restartPolicyType = "never"
+
+[cron]
+schedule = "30 8 * * *"
