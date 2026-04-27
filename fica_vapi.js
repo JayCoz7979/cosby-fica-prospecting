@@ -14,11 +14,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-const ELEVENLABS_API_KEY      = process.env.ELEVENLABS_API_KEY;
-const ELEVENLABS_AGENT_ID     = process.env.ELEVENLABS_AGENT_ID;
+const ELEVENLABS_API_KEY         = process.env.ELEVENLABS_API_KEY;
+const ELEVENLABS_AGENT_ID        = process.env.ELEVENLABS_AGENT_ID;
 const ELEVENLABS_PHONE_NUMBER_ID = process.env.ELEVENLABS_PHONE_NUMBER_ID;
-const ZAPIER_WEBHOOK_URL      = 'https://hooks.zapier.com/hooks/catch/26341455/ujd6pv3/';
-const OUTREACH_ENABLED       = process.env.OUTREACH_ENABLED;
+const OUTREACH_ENABLED           = process.env.OUTREACH_ENABLED;
+// Post-call results are written to fica_leads via the ElevenLabs webhook
+// endpoint (Supabase Edge Function: elevenlabs-webhook) — no Zapier required.
 
 const SCORE_THRESHOLD   = 6;
 const MAX_CALLS_PER_DAY = 10;
@@ -113,34 +114,6 @@ async function triggerCall(lead) {
   return result.conversation_id;
 }
 
-async function sendZapierWebhook(lead, callId, status) {
-  try {
-    const response = await fetch(ZAPIER_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        event:         'fica_call_triggered',
-        call_id:       callId,
-        status,
-        lead_id:       lead.id,
-        business_name: lead.business_name,
-        phone:         lead.phone,
-        state:         lead.state,
-        fica_score:    lead.fica_score,
-        industry:      lead.industry,
-        timestamp:     new Date().toISOString(),
-      }),
-    });
-
-    if (!response.ok) {
-      console.error('[vapi] Zapier webhook failed:', response.status);
-    } else {
-      console.log(`[vapi] Zapier webhook sent for call ${callId}`);
-    }
-  } catch (err) {
-    console.error('[vapi] Zapier webhook error:', err.message);
-  }
-}
 
 async function logCall({ leadId, callId, status, errorMessage }) {
   const { error } = await supabase.from('fica_outreach_log').insert({
@@ -240,7 +213,6 @@ async function processCallLeads() {
     }
 
     await logCall({ leadId: lead.id, callId, status, errorMessage: errorMsg });
-    await sendZapierWebhook(lead, callId, status);
 
     await new Promise((r) => setTimeout(r, 3000));
   }

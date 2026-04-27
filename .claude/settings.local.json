@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__59837129-18bb-45a4-a81c-3ad51e5a814b__list_organizations",
+      "mcp__59837129-18bb-45a4-a81c-3ad51e5a814b__list_projects",
+      "mcp__59837129-18bb-45a4-a81c-3ad51e5a814b__get_cost",
+      "mcp__59837129-18bb-45a4-a81c-3ad51e5a814b__confirm_cost",
+      "mcp__59837129-18bb-45a4-a81c-3ad51e5a814b__get_project",
+      "Bash(find \"C:\\\\Users\\\\jason\\\\Cosby Capital\\\\cosby-capital\\\\src\" -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\) -exec grep -l \"TODO\\\\|FIXME\" {} \\\\;)",
+      "mcp__59837129-18bb-45a4-a81c-3ad51e5a814b__execute_sql",
+      "mcp__59837129-18bb-45a4-a81c-3ad51e5a814b__apply_migration",
+      "mcp__59837129-18bb-45a4-a81c-3ad51e5a814b__deploy_edge_function"
+    ]
+  }
+}
