@@ -1,12 +1,12 @@
 /**
- * fica-vapi service (ElevenLabs Conversational AI)
- * Triggers outbound ElevenLabs calls for high-scoring FICA Tip Credit leads.
+ * fica-vapi service (VAPI Conversational AI with ElevenLabs voice + Twilio)
+ * Triggers outbound VAPI calls for high-scoring FICA Tip Credit leads.
  * Call-restricted states → routed to email. 3 no-answers → 90-day re-engagement.
  * Schedule: 9:00 AM UTC daily via Railway cron.
  *
  * Required env vars:
  *   SUPABASE_URL, SUPABASE_SERVICE_KEY
- *   ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, ELEVENLABS_PHONE_NUMBER_ID
+ *   VAPI_API_KEY, VAPI_ASSISTANT_ID, VAPI_PHONE_NUMBER_ID
  *   OUTREACH_ENABLED=true
  */
 
@@ -17,11 +17,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-const ELEVENLABS_API_KEY         = process.env.ELEVENLABS_API_KEY;
-const ELEVENLABS_AGENT_ID        = process.env.ELEVENLABS_AGENT_ID;
-const ELEVENLABS_PHONE_NUMBER_ID = process.env.ELEVENLABS_PHONE_NUMBER_ID;
-const OUTREACH_ENABLED           = process.env.OUTREACH_ENABLED;
-// Post-call results written to fica_leads via Supabase Edge Function: elevenlabs-webhook
+const VAPI_API_KEY         = process.env.VAPI_API_KEY;
+const VAPI_ASSISTANT_ID    = process.env.VAPI_FICA_ASSISTANT_ID;
+const VAPI_PHONE_NUMBER_ID = process.env.VAPI_FICA_PHONE_NUMBER_ID;
+const OUTREACH_ENABLED     = process.env.OUTREACH_ENABLED;
 
 const SCORE_THRESHOLD   = 6;
 const MAX_CALLS_PER_DAY = 10;
@@ -65,29 +64,27 @@ async function triggerCall(lead) {
   const phone = formatPhone(lead.phone);
   if (!phone) throw new Error(`Invalid phone: ${lead.phone}`);
 
-  const res = await fetch('https://api.elevenlabs.io/v1/convai/conversations/outbound_call', {
+  const res = await fetch('https://api.vapi.ai/call', {
     method: 'POST',
-    headers: { 'xi-api-key': ELEVENLABS_API_KEY, 'Content-Type': 'application/json' },
+    headers: { 'Authorization': `Bearer ${VAPI_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      agent_id:              ELEVENLABS_AGENT_ID,
-      agent_phone_number_id: ELEVENLABS_PHONE_NUMBER_ID,
-      to_number:             phone,
-      conversation_initiation_client_data: {
-        dynamic_variables: {
-          business_name:  lead.business_name,
-          contact_name:   lead.contact_name || 'there',
-          industry:       lead.industry || 'restaurant',
-          city:           lead.city || '',
-          state:          lead.state || '',
-          employee_count: lead.employee_count || 'your',
-        },
+      phoneNumberId:  VAPI_PHONE_NUMBER_ID,
+      assistantId:    VAPI_ASSISTANT_ID,
+      customerNumber: phone,
+      customVariables: {
+        business_name:  lead.business_name,
+        contact_name:   lead.contact_name || 'there',
+        industry:       lead.industry || 'restaurant',
+        city:           lead.city || '',
+        state:          lead.state || '',
+        employee_count: lead.employee_count || 'your',
       },
     }),
   });
 
   const result = await res.json();
-  if (!res.ok) throw new Error(`ElevenLabs error: ${result.detail || JSON.stringify(result)}`);
-  return result.conversation_id;
+  if (!res.ok) throw new Error(`VAPI error: ${result.error?.message || JSON.stringify(result)}`);
+  return result.id;
 }
 
 async function run() {
@@ -97,9 +94,9 @@ async function run() {
     console.log('[vapi] OUTREACH_ENABLED is not "true" — exiting.');
     process.exit(0);
   }
-  if (!ELEVENLABS_API_KEY)         { console.error('[vapi] ELEVENLABS_API_KEY not set');         process.exit(1); }
-  if (!ELEVENLABS_AGENT_ID)        { console.error('[vapi] ELEVENLABS_AGENT_ID not set');        process.exit(1); }
-  if (!ELEVENLABS_PHONE_NUMBER_ID) { console.error('[vapi] ELEVENLABS_PHONE_NUMBER_ID not set'); process.exit(1); }
+  if (!VAPI_API_KEY)         { console.error('[vapi] VAPI_API_KEY not set');         process.exit(1); }
+  if (!VAPI_ASSISTANT_ID)    { console.error('[vapi] VAPI_FICA_ASSISTANT_ID not set');    process.exit(1); }
+  if (!VAPI_PHONE_NUMBER_ID) { console.error('[vapi] VAPI_FICA_PHONE_NUMBER_ID not set'); process.exit(1); }
 
   const now = new Date().toISOString();
   const { data: leads, error } = await supabase
