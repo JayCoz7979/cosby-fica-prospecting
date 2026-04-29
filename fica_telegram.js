@@ -3,8 +3,7 @@
  * Sends a daily summary to the FICA Alerts Telegram group with:
  *   - New leads found today
  *   - Emails sent today
- *   - Calls triggered today
- *   - Leads routed to email due to state restrictions
+ *   - Calls made today
  *   - Top 5 leads by fica_score
  * Schedule: 9:30 AM UTC daily via Railway cron.
  */
@@ -72,35 +71,18 @@ async function getEmailsSentToday() {
   return data || [];
 }
 
-async function getCallsTriggeredToday() {
-  const since = new Date();
-  since.setHours(0, 0, 0, 0);
-
-  const { data, error } = await supabase
-    .from('fica_outreach_log')
-    .select('id, status')
-    .gte('triggered_at', since.toISOString())
-    .not('vapi_call_id', 'is', null);
-
-  if (error) {
-    console.error('[telegram] Error fetching calls triggered:', error.message);
-    return [];
-  }
-  return data || [];
-}
-
-async function getLeadsRoutedToEmailToday() {
+async function getCallsMadeToday() {
   const since = new Date();
   since.setHours(0, 0, 0, 0);
 
   const { data, error } = await supabase
     .from('fica_leads')
-    .select('id, business_name, state, reason_routed_to_email')
-    .gte('created_at', since.toISOString())
-    .eq('routed_to_email_only', true);
+    .select('id, business_name, call_success')
+    .gte('last_called_at', since.toISOString())
+    .not('last_called_at', 'is', null);
 
   if (error) {
-    console.error('[telegram] Error fetching email-routed leads:', error.message);
+    console.error('[telegram] Error fetching calls made:', error.message);
     return [];
   }
   return data || [];
@@ -130,8 +112,7 @@ async function buildDailySummary() {
 
   const newLeads = await getNewLeadsToday();
   const emailsSent = await getEmailsSentToday();
-  const callsTriggered = await getCallsTriggeredToday();
-  const emailRoutedLeads = await getLeadsRoutedToEmailToday();
+  const callsMade = await getCallsMadeToday();
   const topLeads = await getTopLeadsToday();
 
   let summary = `<b>📊 FICA Daily Summary — ${dateStr}</b>\n\n`;
@@ -139,25 +120,21 @@ async function buildDailySummary() {
   // New leads count
   summary += `<b>🎯 New Leads Found:</b> ${newLeads.length}\n`;
   if (newLeads.length > 0) {
-    summary += `   Industries: ${[...new Set(newLeads.map(l => l.industry))].join(', ')}\n`;
+    const industries = [...new Set(newLeads.map(l => l.industry))];
+    summary += `   Industries: ${industries.join(', ')}\n`;
   }
   summary += '\n';
 
   // Emails sent count
   summary += `<b>✉️ Emails Sent Today:</b> ${emailsSent.length}\n\n`;
 
-  // Calls triggered count
-  summary += `<b>☎️ Calls Triggered Today:</b> ${callsTriggered.length}\n\n`;
-
-  // Email-routed leads
-  if (emailRoutedLeads.length > 0) {
-    summary += `<b>⚠️ Leads Routed to Email Only:</b> ${emailRoutedLeads.length}\n`;
-    const stateBreakdown = {};
-    emailRoutedLeads.forEach(lead => {
-      stateBreakdown[lead.state] = (stateBreakdown[lead.state] || 0) + 1;
-    });
-    summary += `   States: ${Object.entries(stateBreakdown).map(([state, count]) => `${state} (${count})`).join(', ')}\n\n`;
+  // Calls made count
+  summary += `<b>☎️ Calls Made Today:</b> ${callsMade.length}\n`;
+  if (callsMade.length > 0) {
+    const successful = callsMade.filter(c => c.call_success).length;
+    summary += `   Successful: ${successful}\n`;
   }
+  summary += '\n';
 
   // Top 5 leads
   if (topLeads.length > 0) {
