@@ -9,7 +9,19 @@
       "Bash(find \"C:\\\\Users\\\\jason\\\\Cosby Capital\\\\cosby-capital\\\\src\" -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\) -exec grep -l \"TODO\\\\|FIXME\" {} \\\\;)",
       "mcp__59837129-18bb-45a4-a81c-3ad51e5a814b__execute_sql",
       "mcp__59837129-18bb-45a4-a81c-3ad51e5a814b__apply_migration",
-      "mcp__59837129-18bb-45a4-a81c-3ad51e5a814b__deploy_edge_function"
+      "mcp__59837129-18bb-45a4-a81c-3ad51e5a814b__deploy_edge_function",
+      "WebFetch(domain:api.telegram.org)",
+      "Bash(curl -s \"https://api.telegram.org/bot8639502918:AAFdvGXImuT-FzyW9FZLesncITvg-tClFkI/getMe\")",
+      "Bash(node -e \"fetch\\('https://api.telegram.org/bot8639502918:AAFdvGXImuT-FzyW9FZLesncITvg-tClFkI/getMe'\\).then\\(r=>r.json\\(\\)\\).then\\(d=>console.log\\(JSON.stringify\\(d,null,2\\)\\)\\).catch\\(e=>console.error\\(e\\)\\)\")",
+      "Bash(node -e \"fetch\\('https://api.telegram.org/bot8639502918:AAHl2V91mlhjYJSvVMFRWzjAWr-rzcRdAXk/getMe'\\).then\\(r=>r.json\\(\\)\\).then\\(d=>console.log\\(JSON.stringify\\(d,null,2\\)\\)\\).catch\\(e=>console.error\\(e\\)\\)\")",
+      "Bash(node -e \"fetch\\('https://api.telegram.org/bot8602363186:AAF4FGVYk2HaipAw4IsrqbvcNTeL64kPRY8/getMe'\\).then\\(r=>r.json\\(\\)\\).then\\(d=>console.log\\(JSON.stringify\\(d,null,2\\)\\)\\).catch\\(e=>console.error\\(e\\)\\)\")",
+      "Bash(node -e \"fetch\\('https://api.telegram.org/bot8655225227:AAF6-pt-UJJXJCz97_icSXIg5E9FagZIdbY/getMe'\\).then\\(r=>r.json\\(\\)\\).then\\(d=>console.log\\(JSON.stringify\\(d,null,2\\)\\)\\).catch\\(e=>console.error\\(e\\)\\)\")",
+      "Bash(node -e \"fetch\\('https://api.telegram.org/bot8772818970:AAEfY7C4dbt7BrB_ip4mJWGStpqbaKFTH5o/getMe'\\).then\\(r=>r.json\\(\\)\\).then\\(d=>console.log\\(JSON.stringify\\(d,null,2\\)\\)\\).catch\\(e=>console.error\\(e\\)\\)\")",
+      "Bash(node -e \"fetch\\('https://api.telegram.org/bot8602363186:AAF4FGVYk2HaipAw4IsrqbvcNTeL64kPRY8/getUpdates'\\).then\\(r=>r.json\\(\\)\\).then\\(d=>console.log\\(JSON.stringify\\(d,null,2\\)\\)\\).catch\\(e=>console.error\\(e\\)\\)\")",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"fetch\\('https://api.telegram.org/bot8639502918:AAHl2V91mlhjYJSvVMFRWzjAWr-rzcRdAXk/getUpdates'\\).then\\(r=>r.json\\(\\)\\).then\\(d=>{const chat=d.result?.[0]?.message?.chat; console.log\\('JayCoz Chat ID:', chat?.id, '| Username:', chat?.username\\)}\\).catch\\(e=>console.error\\(e\\)\\)\")",
+      "Bash(node -e \"fetch\\('https://api.telegram.org/bot8639502918:AAHl2V91mlhjYJSvVMFRWzjAWr-rzcRdAXk/getUpdates'\\).then\\(r=>r.json\\(\\)\\).then\\(d=>console.log\\(JSON.stringify\\(d,null,2\\)\\)\\).catch\\(e=>console.error\\(e\\)\\)\")",
+      "Bash(node -e \"fetch\\('https://api.telegram.org/bot8795297882:AAEmMPTVW8Lx5b2UDGUEQq3lOW8XwIPe4BU/getMe'\\).then\\(r=>r.json\\(\\)\\).then\\(d=>console.log\\(JSON.stringify\\(d,null,2\\)\\)\\).catch\\(e=>console.error\\(e\\)\\)\")"
     ]
   }
 }

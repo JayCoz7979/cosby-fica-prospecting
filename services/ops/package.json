@@ -1,0 +1,9 @@
+{
+  "name": "cosby-ops-telegram",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Daily Cosby Ops status report via Telegram",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.4"
+  }
+}
