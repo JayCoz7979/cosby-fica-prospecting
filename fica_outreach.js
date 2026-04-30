@@ -14,7 +14,6 @@ const supabase = createClient(
 
 const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
 const RESEND_API_KEY     = process.env.RESEND_API_KEY;
-const OUTREACH_ENABLED   = process.env.OUTREACH_ENABLED;
 const FROM_EMAIL         = process.env.FROM_EMAIL || 'info@cosbyaisolutions.com';
 const SCORE_THRESHOLD    = 4;
 const MAX_EMAILS_PER_RUN = 20;
@@ -249,13 +248,13 @@ async function processLeads() {
 async function run() {
   console.log('[outreach] Starting fica_outreach — ' + new Date().toISOString());
 
-  if (OUTREACH_ENABLED !== 'true') {
-    console.log('[outreach] OUTREACH_ENABLED is not "true" — skipping email outreach.');
-    process.exit(0);
-  }
-
   if (!RESEND_API_KEY) {
     console.error('[outreach] RESEND_API_KEY is not set');
+    process.exit(1);
+  }
+
+  if (!ANTHROPIC_API_KEY) {
+    console.error('[outreach] ANTHROPIC_API_KEY is not set');
     process.exit(1);
   }
 

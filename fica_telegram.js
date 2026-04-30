@@ -3,8 +3,7 @@
  * Sends a daily summary to the FICA Alerts Telegram group with:
  *   - New leads found today
  *   - Emails sent today
- *   - Calls triggered today
- *   - Leads routed to email due to state restrictions
+ *   - Calls made today
  *   - Top 5 leads by fica_score
  * Schedule: 9:30 AM UTC daily via Railway cron.
  */
@@ -66,48 +65,37 @@ async function getEmailsSentToday() {
     .not('resend_id', 'is', null);
 
   if (error) {
-    console.error('[telegram] Error fetching emails:', error.message);
+    console.error('[telegram] Error fetching emails sent:', error.message);
     return [];
   }
   return data || [];
 }
 
-async function getCallsToday() {
+async function getCallsMadeToday() {
   const since = new Date();
   since.setHours(0, 0, 0, 0);
 
   const { data, error } = await supabase
-    .from('fica_outreach_log')
-    .select('id, status, last_call_id')
-    .gte('sent_at', since.toISOString())
-    .not('last_call_id', 'is', null);
+    .from('fica_leads')
+    .select('id, business_name, call_success')
+    .gte('last_called_at', since.toISOString())
+    .not('last_called_at', 'is', null);
 
   if (error) {
-    console.error('[telegram] Error fetching calls:', error.message);
+    console.error('[telegram] Error fetching calls made:', error.message);
     return [];
   }
   return data || [];
 }
 
-async function getRestrictedStateLeads() {
+async function getTopLeadsToday() {
+  const since = new Date();
+  since.setHours(0, 0, 0, 0);
+
   const { data, error } = await supabase
     .from('fica_leads')
-    .select('id, business_name, state')
-    .in('outreach_stage', ['call_restricted', 'emailed_restricted']);
-
-  if (error) {
-    console.error('[telegram] Error fetching restricted leads:', error.message);
-    return [];
-  }
-  return data || [];
-}
-
-async function getTop5Leads() {
-  const { data, error } = await supabase
-    .from('fica_leads')
-    .select('business_name, industry, city, state, fica_score, employee_count, outreach_stage, email, phone')
-    .gte('fica_score', 1)
-    .not('outreach_stage', 'in', '("not_interested","disqualified")')
+    .select('id, business_name, industry, city, state, fica_score')
+    .gte('created_at', since.toISOString())
     .order('fica_score', { ascending: false })
     .limit(5);
 
@@ -118,95 +106,72 @@ async function getTop5Leads() {
   return data || [];
 }
 
-async function sendDailySummary() {
-  console.log('[telegram] Gathering daily stats...');
+async function buildDailySummary() {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
 
-  const [newLeads, emailsSent, callsToday, restrictedLeads, top5] = await Promise.all([
-    getNewLeadsToday(),
-    getEmailsSentToday(),
-    getCallsToday(),
-    getRestrictedStateLeads(),
-    getTop5Leads(),
-  ]);
+  const newLeads = await getNewLeadsToday();
+  const emailsSent = await getEmailsSentToday();
+  const callsMade = await getCallsMadeToday();
+  const topLeads = await getTopLeadsToday();
 
-  const successfulEmails = emailsSent.filter((e) => e.status === 'sent').length;
-  const successfulCalls  = callsToday.filter((c) => c.status === 'call_initiated').length;
+  let summary = `<b>📊 FICA Daily Summary — ${dateStr}</b>\n\n`;
 
-  const today = new Date().toLocaleDateString('en-US', {
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-  });
-
-  let msg = `<b>💼 FICA Tip Credit — Daily Prospecting Report</b>\n`;
-  msg += `<i>${today}</i>\n\n`;
-
-  msg += `<b>Today's Activity</b>\n`;
-  msg += `• New leads found: <b>${newLeads.length}</b>\n`;
-  msg += `• Emails sent: <b>${successfulEmails}</b>`;
-  if (emailsSent.length > successfulEmails) msg += ` (${emailsSent.length - successfulEmails} failed)`;
-  msg += `\n`;
-  msg += `• Calls triggered: <b>${successfulCalls}</b>`;
-  if (callsToday.length > successfulCalls) msg += ` (${callsToday.length - successfulCalls} failed)`;
-  msg += `\n`;
-  if (restrictedLeads.length > 0) {
-    msg += `• Routed to email (state law): <b>${restrictedLeads.length}</b>\n`;
-  }
-  msg += `\n`;
-
+  // New leads count
+  summary += `<b>🎯 New Leads Found:</b> ${newLeads.length}\n`;
   if (newLeads.length > 0) {
-    msg += `<b>New Leads Today</b>\n`;
-    for (const lead of newLeads.slice(0, 5)) {
-      msg += `• ${lead.business_name} (${lead.city || ''}, ${lead.state || ''}) — score: ${lead.fica_score}\n`;
-    }
-    if (newLeads.length > 5) msg += `<i>...and ${newLeads.length - 5} more</i>\n`;
-    msg += '\n';
+    const industries = [...new Set(newLeads.map(l => l.industry))];
+    summary += `   Industries: ${industries.join(', ')}\n`;
+  }
+  summary += '\n';
+
+  // Emails sent count
+  summary += `<b>✉️ Emails Sent Today:</b> ${emailsSent.length}\n\n`;
+
+  // Calls made count
+  summary += `<b>☎️ Calls Made Today:</b> ${callsMade.length}\n`;
+  if (callsMade.length > 0) {
+    const successful = callsMade.filter(c => c.call_success).length;
+    summary += `   Successful: ${successful}\n`;
+  }
+  summary += '\n';
+
+  // Top 5 leads
+  if (topLeads.length > 0) {
+    summary += `<b>⭐ Top 5 Leads by FICA Score:</b>\n`;
+    topLeads.forEach((lead, idx) => {
+      summary += `   ${idx + 1}. <b>${lead.business_name}</b> (${lead.industry}) — ${lead.city}, ${lead.state}\n`;
+      summary += `      Score: ${lead.fica_score?.toFixed(2) || 'N/A'}\n`;
+    });
   }
 
-  if (top5.length > 0) {
-    msg += `<b>Top 5 Leads by Score</b>\n`;
-    for (const lead of top5) {
-      const hasPhone = lead.phone ? '📞' : '';
-      const hasEmail = lead.email ? '📧' : '';
-      const restricted = ['call_restricted', 'emailed_restricted'].includes(lead.outreach_stage) ? ' 🚫📞' : '';
-      msg += `<b>${lead.business_name}</b> ${hasPhone}${hasEmail}${restricted}\n`;
-      msg += `  📍 ${lead.city || ''}, ${lead.state || ''} | 🍽 ${lead.industry || 'N/A'}\n`;
-      msg += `  👥 ${lead.employee_count || 'N/A'} employees | ⭐ Score: ${lead.fica_score}/10\n`;
-      msg += `  Stage: ${lead.outreach_stage || 'new'}\n`;
-    }
-    msg += '\n';
-  }
+  summary += '\n<i>Powered by Cosby AI Solutions</i>';
 
-  msg += `<i>FICA Tip Credit (Sec. 45B) — up to 7.65% of tip income, $0 upfront</i>\n`;
-  msg += `<i>Pipeline: finder 8AM → scorer 8:15AM → email 8:30AM → calls 9AM UTC</i>`;
-
-  await sendTelegramMessage(msg);
-  console.log('[telegram] Daily summary sent successfully');
+  return summary;
 }
 
-async function run() {
-  console.log('[telegram] Starting fica_telegram — ' + new Date().toISOString());
-
-  if (!TELEGRAM_BOT_TOKEN) {
-    console.error('[telegram] TELEGRAM_BOT_TOKEN is not set');
-    process.exit(1);
-  }
-
-  if (!TELEGRAM_CHAT_ID) {
-    console.error('[telegram] TELEGRAM_CHAT_ID is not set');
-    process.exit(1);
-  }
-
-  console.log(`[telegram] Sending to chat: ${TELEGRAM_CHAT_ID}`);
-
+async function runDailyReport() {
   try {
-    await sendDailySummary();
-    console.log('[telegram] Complete');
-  } catch (err) {
-    console.error('[telegram] Fatal error:', err.message);
+    console.log('[telegram] Building daily FICA summary...');
+    const summary = await buildDailySummary();
+    
+    console.log('[telegram] Sending to Telegram group...');
+    await sendTelegramMessage(summary);
+    
+    console.log('[telegram] ✅ Daily report sent successfully');
+  } catch (error) {
+    console.error('[telegram] ❌ Error sending daily report:', error.message);
+    
+    // Send error notification to Telegram
+    try {
+      await sendTelegramMessage(`<b>❌ FICA Daily Report Failed</b>\n\nError: ${error.message}`);
+    } catch (notifyError) {
+      console.error('[telegram] Failed to send error notification:', notifyError.message);
+    }
+    
     process.exit(1);
   }
 }
 
-run().catch((err) => {
-  console.error('[telegram] Unhandled error:', err);
-  process.exit(1);
-});
+// Run the report
+runDailyReport();

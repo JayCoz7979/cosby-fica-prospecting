@@ -7,7 +7,6 @@
  * Required env vars:
  *   SUPABASE_URL, SUPABASE_SERVICE_KEY
  *   VAPI_API_KEY, VAPI_ASSISTANT_ID, VAPI_PHONE_NUMBER_ID
- *   OUTREACH_ENABLED=true
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -20,7 +19,6 @@ const supabase = createClient(
 const VAPI_API_KEY         = process.env.VAPI_API_KEY;
 const VAPI_ASSISTANT_ID    = process.env.VAPI_FICA_ASSISTANT_ID;
 const VAPI_PHONE_NUMBER_ID = process.env.VAPI_FICA_PHONE_NUMBER_ID;
-const OUTREACH_ENABLED     = process.env.OUTREACH_ENABLED;
 
 const SCORE_THRESHOLD   = 6;
 const MAX_CALLS_PER_DAY = 10;
@@ -90,10 +88,6 @@ async function triggerCall(lead) {
 async function run() {
   console.log('[vapi] Starting — ' + new Date().toISOString());
 
-  if (OUTREACH_ENABLED !== 'true') {
-    console.log('[vapi] OUTREACH_ENABLED is not "true" — exiting.');
-    process.exit(0);
-  }
   if (!VAPI_API_KEY)         { console.error('[vapi] VAPI_API_KEY not set');         process.exit(1); }
   if (!VAPI_ASSISTANT_ID)    { console.error('[vapi] VAPI_FICA_ASSISTANT_ID not set');    process.exit(1); }
   if (!VAPI_PHONE_NUMBER_ID) { console.error('[vapi] VAPI_FICA_PHONE_NUMBER_ID not set'); process.exit(1); }

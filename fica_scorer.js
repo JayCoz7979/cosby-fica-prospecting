@@ -15,8 +15,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-const OUTREACH_ENABLED = process.env.OUTREACH_ENABLED;
-
 // Industries ranked by volume of tipped employees — directly impacts credit size
 const INDUSTRY_SCORES = {
   'full-service restaurant': 4,
@@ -127,11 +125,6 @@ async function scoreUnscored() {
 
 async function run() {
   console.log('[scorer] Starting fica_scorer — ' + new Date().toISOString());
-
-  if (OUTREACH_ENABLED !== 'true') {
-    console.log('[scorer] OUTREACH_ENABLED is not "true" — skipping scorer.');
-    process.exit(0);
-  }
 
   try {
     const scored = await scoreUnscored();
