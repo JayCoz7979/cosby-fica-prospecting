@@ -15,7 +15,7 @@ const supabase = createClient(
 const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
 const RESEND_API_KEY     = process.env.RESEND_API_KEY;
 const FROM_EMAIL         = process.env.FROM_EMAIL || 'info@cosbyaisolutions.com';
-const SCORE_THRESHOLD    = 0;
+const SCORE_THRESHOLD    = 4;
 const MAX_EMAILS_PER_RUN = 20;
 
 // States where outbound cold calls are restricted — email-only outreach
