@@ -1,0 +1,15 @@
+{
+  "name": "agent-factory",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Automated agent creation service - generates Railway services, bots, migrations, and social media profiles",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.4",
+    "@octokit/rest": "^20.0.2",
+    "node-telegram-bot-api": "^0.63.0"
+  }
+}
