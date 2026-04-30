@@ -2,7 +2,7 @@
  * cosby-ops-healer service (Railway)
  * Autonomous service health monitor and auto-healer.
  * Monitors every 5 minutes. Three tiers of response.
- * Schedule: */5 * * * * (every 5 minutes)
+ * Schedule: Every 5 minutes (cron: *\/5 * * * *)
  *
  * Required env vars:
  *   RAILWAY_API_TOKEN

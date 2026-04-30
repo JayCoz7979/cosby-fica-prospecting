@@ -5,7 +5,7 @@
  * - Tier 1: Auto-fix immediately (restarts, throttling)
  * - Tier 2: Alert + auto-fix with 5-min wait
  * - Tier 3: Alert only (human approval)
- * Schedule: */5 * * * * (every 5 minutes) via Railway cron.
+ * Schedule: Every 5 minutes via Railway cron (cron: *\/5 * * * *)
  */
 
 import { createClient } from '@supabase/supabase-js';
