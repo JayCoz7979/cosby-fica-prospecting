@@ -23,14 +23,33 @@ const RAILWAY_API = 'https://api.railway.app/graphql';
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_MONITOR_BOT_TOKEN;
 const COSBY_OPS_CHAT_ID = process.env.COSBY_OPS_ALERTS_CHAT_ID || '-5271660549';
 
-// Services to monitor
+// Services to monitor across all projects
 const MONITORED_SERVICES = [
+  // FICA Tip Credit Services
   'fica-finder',
   'fica-scorer',
   'fica-outreach',
   'fica-calls',
   'fica-telegram',
   'cosby-ops',
+  // Tanner Grants Services
+  'tanner-grants-finder',
+  'tanner-grant-outreach',
+  // Cosby Capital Services (add when deployed)
+  // 'cosby-capital-finder',
+  // 'cosby-capital-scorer',
+  // Cosby AI Solutions Services (add when deployed)
+  // 'cosby-ai-finder',
+  // 'cosby-ai-outreach',
+  // Program Pilot AI Services (add when deployed)
+  // 'program-pilot-service-1',
+  // 'program-pilot-service-2',
+  // LuxPilot AI Services (add when deployed)
+  // 'luxpilot-service-1',
+  // 'luxpilot-service-2',
+  // Game Lens Services (add when deployed)
+  // 'game-lens-service-1',
+  // 'game-lens-service-2',
 ];
 
 // ─── Telegram Helper ──────────────────────────────────────────────────────
