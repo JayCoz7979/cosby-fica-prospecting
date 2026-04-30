@@ -1,0 +1,9 @@
+{
+  "name": "cosby-ops-healer",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Autonomous service health monitor and auto-healer",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.4"
+  }
+}
