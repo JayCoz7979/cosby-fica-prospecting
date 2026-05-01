@@ -16,7 +16,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-const VAPI_API_KEY         = process.env.VAPI_API_KEY;
+const VAPI_API_KEY         = process.env.VAPI_API_KEY_PUBLIC;
 const VAPI_ASSISTANT_ID    = process.env.VAPI_FICA_ASSISTANT_ID;
 const VAPI_PHONE_NUMBER_ID = process.env.VAPI_FICA_PHONE_NUMBER_ID;
 
