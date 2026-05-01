@@ -85,8 +85,7 @@ async function scoreUnscored() {
   const { data: leads, error } = await supabase
     .from('fica_leads')
     .select('*')
-    .eq('fica_score', 0)
-    .eq('outreach_stage', 'new');
+    .eq('fica_score', 0);
 
   if (error) {
     throw new Error(`Failed to fetch unscored leads: ${error.message}`);
