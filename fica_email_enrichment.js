@@ -1,27 +1,25 @@
 /**
- * scorer_agent.js — Cosby AI Solutions B2B Lead Scorer
- *
- * Agentic architecture:
- * - Uses Claude to score each lead instead of static rules
- * - Analyzes website quality, industry value, phone presence, location
- * - Assigns offer type and detailed pain points
- * - Batches leads for efficiency (10 at a time via Claude)
- * - Telegram summary on completion
+ * fica_email_enrichment.js
+ * Agentic email finder for FICA Tip Credit leads.
+ * 4-strategy waterfall: website → directory → social → pattern
+ * Replaces Hunter.io — no limits, no cost.
+ * Schedule: runs daily via Railway cron after fica_lead_finder.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import ws from 'ws';
 
-const supabase  = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY,
+  { realtime: { transport: ws } }
+);
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID   = process.env.COSBY_AI_TELEGRAM_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
-const OUTREACH_ENABLED   = process.env.OUTREACH_ENABLED === 'true';
-
-const BATCH_SIZE   = 15;  // leads scored per Claude call
-const MAX_RETRIES  = 3;
-const RETRY_BASE   = 2000;
+const TELEGRAM_CHAT_ID   = process.env.FICA_ALERTS_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
+const BATCH_SIZE         = 20;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -34,172 +32,320 @@ async function sendTelegram(message) {
       body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: message, parse_mode: 'Markdown' }),
     });
   } catch (err) {
-    console.error('[scorer] Telegram error:', err.message);
+    console.error('[fica-email] Telegram error:', err.message);
   }
 }
 
 async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// ─── Score a batch of leads with Claude ───────────────────────────────────
+function extractDomain(websiteUrl) {
+  try {
+    const url = new URL(websiteUrl.startsWith('http') ? websiteUrl : `https://${websiteUrl}`);
+    return url.hostname.replace('www.', '');
+  } catch {
+    return null;
+  }
+}
 
-async function scoreBatch(leads, attempt = 1) {
-  const leadList = leads.map((l, i) =>
-    `${i + 1}. ${l.business_name} | ${l.industry} | ${l.city}, ${l.state} | ` +
-    `Phone: ${l.phone || 'none'} | Website: ${l.website_url || 'NONE'} | ` +
-    `Website quality: ${l.website_quality || 'unknown'}`
-  ).join('\n');
+function isValidEmail(email) {
+  if (!email || typeof email !== 'string') return false;
+  const regex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+  if (!regex.test(email)) return false;
+  const junk = ['example.com', 'test.com', 'email.com', 'domain.com', 'yourcompany.com', 'gmail.com', 'yahoo.com', 'hotmail.com'];
+  const domain = email.split('@')[1];
+  if (junk.includes(domain)) return false;
+  return true;
+}
 
-  const prompt = `You are a B2B sales scoring agent for Cosby AI Solutions. We sell websites, AI assistants, and automation to local businesses.
+// ─── Strategy 1: Website scrape via Claude + web search ───────────────────
 
-Score each of these ${leads.length} leads. For each lead assign:
+async function strategyWebsite(lead) {
+  if (!lead.website_url) return null;
+  const domain = extractDomain(lead.website_url);
+  if (!domain) return null;
 
-pain_score: 1-10
-  10 = no website + high-value industry + has phone
-  7-9 = outdated/poor website + valuable industry
-  4-6 = decent website but needs AI/automation
-  1-3 = strong digital presence, low urgency
+  const prompt = `You are an email research specialist. Find the real contact email for this business.
 
-offer_type:
-  "website" = no website
-  "website_redesign" = has website but poor/outdated
-  "ai_assistant" = decent site, needs AI chatbot or booking
-  "full_package" = needs website + AI + automation
+Business: ${lead.business_name}
+Industry: ${lead.industry}
+Location: ${lead.city}, ${lead.state}
+Website: ${lead.website_url}
+Domain: ${domain}
 
-HIGH VALUE industries (score higher): dental, medical, law, contractor, roofing, plumbing, hvac, auto repair, real estate, insurance, landscaping, pest control
+Search their website for a contact email. Check: contact page, about page, footer, staff directory.
+Also check for any email addresses on the domain ${domain}.
 
-LEADS:
-${leadList}
+Return ONLY valid JSON:
+{
+  "email": "found@email.com or null",
+  "confidence": "high|medium|low",
+  "source": "where you found it"
+}
 
-Return ONLY a JSON array with exactly ${leads.length} objects in the same order:
-[{"pain_score": 7, "offer_type": "website", "notes": "one sentence sales insight"}, ...]
-
-No markdown, no explanation. Start with [ end with ].`;
+Return ONLY JSON. No explanation.`;
 
   try {
     const response = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
+      max_tokens: 300,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
       messages: [{ role: 'user', content: prompt }],
     });
 
-    const text = response.content.find(b => b.type === 'text')?.text || '';
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error('No JSON array in response');
-    const results = JSON.parse(jsonMatch[0]);
-    if (!Array.isArray(results) || results.length !== leads.length) {
-      throw new Error(`Expected ${leads.length} results, got ${results?.length}`);
+    let text = '';
+    for (const block of response.content) {
+      if (block.type === 'text') text += block.text;
     }
-    return results;
+    const match = text.match(/\{[\s\S]*?\}/);
+    if (!match) return null;
+    const result = JSON.parse(match[0]);
+    return isValidEmail(result.email) ? { ...result, strategy: 'website' } : null;
   } catch (err) {
-    if (attempt < MAX_RETRIES) {
-      await sleep(RETRY_BASE * Math.pow(2, attempt - 1));
-      return scoreBatch(leads, attempt + 1);
-    }
-    throw err;
+    console.warn(`[fica-email] Strategy 1 failed for ${lead.business_name}:`, err.message);
+    return null;
   }
+}
+
+// ─── Strategy 2: Directory search (Yelp, Google Business, BBB) ───────────
+
+async function strategyDirectory(lead) {
+  const prompt = `You are an email research specialist. Find the contact email for this business using online directories.
+
+Business: ${lead.business_name}
+Industry: ${lead.industry}
+Location: ${lead.city}, ${lead.state}
+Phone: ${lead.phone || 'unknown'}
+
+Search these sources:
+1. Yelp listing for ${lead.business_name} in ${lead.city}, ${lead.state}
+2. Google Business Profile
+3. BBB (Better Business Bureau)
+4. Any local directory listing
+
+Return ONLY valid JSON:
+{
+  "email": "found@email.com or null",
+  "confidence": "high|medium|low",
+  "source": "where you found it"
+}
+
+Return ONLY JSON. No explanation.`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    let text = '';
+    for (const block of response.content) {
+      if (block.type === 'text') text += block.text;
+    }
+    const match = text.match(/\{[\s\S]*?\}/);
+    if (!match) return null;
+    const result = JSON.parse(match[0]);
+    return isValidEmail(result.email) ? { ...result, strategy: 'directory' } : null;
+  } catch (err) {
+    console.warn(`[fica-email] Strategy 2 failed for ${lead.business_name}:`, err.message);
+    return null;
+  }
+}
+
+// ─── Strategy 3: Social media search ──────────────────────────────────────
+
+async function strategySocial(lead) {
+  const prompt = `You are an email research specialist. Find the contact email for this business using social media.
+
+Business: ${lead.business_name}
+Industry: ${lead.industry}
+Location: ${lead.city}, ${lead.state}
+
+Search:
+1. Facebook business page for ${lead.business_name} in ${lead.city}
+2. Instagram bio or contact info
+3. LinkedIn company page
+4. Any social media mention of their email
+
+Return ONLY valid JSON:
+{
+  "email": "found@email.com or null",
+  "confidence": "high|medium|low",
+  "source": "where you found it"
+}
+
+Return ONLY JSON. No explanation.`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    let text = '';
+    for (const block of response.content) {
+      if (block.type === 'text') text += block.text;
+    }
+    const match = text.match(/\{[\s\S]*?\}/);
+    if (!match) return null;
+    const result = JSON.parse(match[0]);
+    return isValidEmail(result.email) ? { ...result, strategy: 'social' } : null;
+  } catch (err) {
+    console.warn(`[fica-email] Strategy 3 failed for ${lead.business_name}:`, err.message);
+    return null;
+  }
+}
+
+// ─── Strategy 4: Pattern generation + validation ──────────────────────────
+
+async function strategyPattern(lead) {
+  if (!lead.website_url) return null;
+  const domain = extractDomain(lead.website_url);
+  if (!domain) return null;
+
+  const prompt = `You are an email research specialist. Generate and validate likely email addresses for this business.
+
+Business: ${lead.business_name}
+Domain: ${domain}
+Industry: ${lead.industry}
+Location: ${lead.city}, ${lead.state}
+
+Common patterns to try: info@, contact@, hello@, manager@, owner@, admin@
+Search the web to verify which of these patterns actually exists and receives mail for domain ${domain}.
+
+Return ONLY valid JSON:
+{
+  "email": "most likely valid email or null",
+  "confidence": "high|medium|low",
+  "source": "pattern validation"
+}
+
+Return ONLY JSON. No explanation.`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    let text = '';
+    for (const block of response.content) {
+      if (block.type === 'text') text += block.text;
+    }
+    const match = text.match(/\{[\s\S]*?\}/);
+    if (!match) return null;
+    const result = JSON.parse(match[0]);
+    return isValidEmail(result.email) ? { ...result, strategy: 'pattern' } : null;
+  } catch (err) {
+    console.warn(`[fica-email] Strategy 4 failed for ${lead.business_name}:`, err.message);
+    return null;
+  }
+}
+
+// ─── Run all 4 strategies in waterfall ────────────────────────────────────
+
+async function findEmail(lead) {
+  const strategies = [strategyWebsite, strategyDirectory, strategySocial, strategyPattern];
+  const names = ['website', 'directory', 'social', 'pattern'];
+
+  for (let i = 0; i < strategies.length; i++) {
+    const result = await strategies[i](lead);
+    if (result && result.email) {
+      console.log(`[fica-email] ✅ ${lead.business_name} → ${result.email} (${names[i]}, ${result.confidence})`);
+      return result;
+    }
+    await sleep(1000);
+  }
+
+  console.log(`[fica-email] ❌ No email found for ${lead.business_name}`);
+  return null;
+}
+
+// ─── Save result to Supabase ───────────────────────────────────────────────
+
+async function saveEmail(lead, result) {
+  const notes = `Email found via ${result.strategy} — confidence: ${result.confidence} — source: ${result.source}`;
+  const { error } = await supabase
+    .from('fica_leads')
+    .update({
+      email:      result.email,
+      notes:      notes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', lead.id);
+
+  if (error) console.error(`[fica-email] Supabase update error for ${lead.business_name}:`, error.message);
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log('[scorer] Starting scorer_agent (agentic) — ' + new Date().toISOString());
+  console.log('[fica-email] Starting fica_email_enrichment — ' + new Date().toISOString());
+  const start = Date.now();
 
-  if (!OUTREACH_ENABLED) {
-    console.log('[scorer] Note: OUTREACH_ENABLED is false — scorer still runs.');
-  }
-
-  // Fetch unscored leads
   const { data: leads, error } = await supabase
-    .from('leads')
+    .from('fica_leads')
     .select('*')
-    .or('pain_score.is.null,pain_score.eq.0')
-    .order('created_at', { ascending: false })
-    .limit(500);
+    .is('email', null)
+    .in('outreach_stage', ['new', 'call_restricted'])
+    .order('created_at', { ascending: true })
+    .limit(BATCH_SIZE);
 
   if (error) {
-    console.error('[scorer] DB error:', error.message);
-    await sendTelegram(`🚨 *B2B Scorer* — DB error: ${error.message}`);
+    await sendTelegram(`🚨 *FICA Email Enrichment* — DB error: ${error.message}`);
     return;
   }
 
   if (!leads || leads.length === 0) {
-    console.log('[scorer] No unscored leads.');
+    console.log('[fica-email] No leads need email enrichment.');
+    await sendTelegram('📧 *FICA Email Enrichment* — No leads need enrichment today.');
     return;
   }
 
-  console.log(`[scorer] Scoring ${leads.length} leads in batches of ${BATCH_SIZE}`);
+  console.log(`[fica-email] Processing ${leads.length} leads...`);
 
-  let updated = 0;
-  let highPriority = 0;
+  let found = 0, notFound = 0;
+  const strategyCount = { website: 0, directory: 0, social: 0, pattern: 0 };
 
-  // Process in batches
-  for (let i = 0; i < leads.length; i += BATCH_SIZE) {
-    const batch = leads.slice(i, i + BATCH_SIZE);
-    console.log(`[scorer] Batch ${Math.floor(i / BATCH_SIZE) + 1}: scoring ${batch.length} leads`);
+  for (const lead of leads) {
+    const result = await findEmail(lead);
 
-    let scores;
-    try {
-      scores = await scoreBatch(batch);
-    } catch (err) {
-      console.error(`[scorer] Batch scoring failed: ${err.message}`);
-      continue;
+    if (result && result.email) {
+      found++;
+      strategyCount[result.strategy] = (strategyCount[result.strategy] || 0) + 1;
+      await saveEmail(lead, result);
+    } else {
+      notFound++;
     }
 
-    for (let j = 0; j < batch.length; j++) {
-      const lead  = batch[j];
-      const score = scores[j];
-
-      if (!score) continue;
-
-      const painScore = Math.max(1, Math.min(10, parseInt(score.pain_score) || 3));
-      const offerType = score.offer_type || 'ai_assistant';
-      const notes     = score.notes || null;
-
-      const { error: updateError } = await supabase
-        .from('leads')
-        .update({
-          pain_score:  painScore,
-          offer_type:  offerType,
-          notes:       notes,
-          updated_at:  new Date().toISOString(),
-        })
-        .eq('id', lead.id);
-
-      if (!updateError) {
-        updated++;
-        if (painScore >= 7) highPriority++;
-        console.log(`[scorer] ✅ ${lead.business_name} → Score: ${painScore} | ${offerType}`);
-      }
-    }
-
-    await sleep(1000);
+    await sleep(2000);
   }
 
-  // Fetch top 10 for Telegram report
-  const { data: topLeads } = await supabase
-    .from('leads')
-    .select('business_name, industry, city, state, pain_score, offer_type, phone')
-    .gte('pain_score', 1)
-    .eq('outreach_stage', 'new')
-    .order('pain_score', { ascending: false })
-    .limit(10);
-
-  const topList = (topLeads || [])
-    .map((l, i) => `${i + 1}. *${l.business_name}* (${l.city}, ${l.state}) — Score: ${l.pain_score} | ${l.offer_type}`)
-    .join('\n');
-
-  console.log(`[scorer] Complete — scored: ${updated}, high priority: ${highPriority}`);
+  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
 
   await sendTelegram(
-    `🎯 *B2B Scorer Complete*\n\n` +
-    `📋 Scored: ${updated}\n` +
-    `🔥 High Priority (7+): ${highPriority}\n\n` +
-    (topList ? `*Top 10 Leads:*\n${topList}` : '')
+    `📧 *FICA Email Enrichment Complete* (${elapsed}s)\n\n` +
+    `Leads Processed: ${leads.length}\n` +
+    `✅ Emails Found: ${found}\n` +
+    `❌ Not Found: ${notFound}\n\n` +
+    `*By Strategy:*\n` +
+    `🌐 Website: ${strategyCount.website || 0}\n` +
+    `📋 Directory: ${strategyCount.directory || 0}\n` +
+    `📱 Social: ${strategyCount.social || 0}\n` +
+    `🔠 Pattern: ${strategyCount.pattern || 0}\n\n` +
+    `_${found} FICA leads ready for outreach_`
   );
+
+  console.log(`[fica-email] Complete — Found: ${found}, Not found: ${notFound}`);
 }
 
 main().catch(async (err) => {
-  console.error('[scorer] Fatal:', err);
-  await sendTelegram(`🚨 *B2B Scorer CRASHED*\n\`${err.message}\``);
+  console.error('[fica-email] Fatal:', err);
+  await sendTelegram(`🚨 *FICA Email Enrichment CRASHED*\n\n${err.message}`);
   process.exit(1);
 });
