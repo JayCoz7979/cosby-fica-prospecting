@@ -293,6 +293,7 @@ async function main() {
     .select('*')
     .is('email', null)
     .in('outreach_stage', ['new', 'call_restricted'])
+    .lt('enrichment_attempts', 5)
     .order('created_at', { ascending: true })
     .limit(BATCH_SIZE);
 
@@ -319,8 +320,13 @@ async function main() {
       found++;
       strategyCount[result.strategy] = (strategyCount[result.strategy] || 0) + 1;
       await saveEmail(lead, result);
+      await supabase.from('fica_leads').update({ enrichment_attempts: 0 }).eq('id', lead.id);
     } else {
       notFound++;
+      await supabase
+        .from('fica_leads')
+        .update({ enrichment_attempts: (lead.enrichment_attempts || 0) + 1 })
+        .eq('id', lead.id);
     }
 
     await sleep(2000);
